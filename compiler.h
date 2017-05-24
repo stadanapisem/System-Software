@@ -9,35 +9,21 @@ using namespace std;
 
 enum token_t {
     LABEL, SYMBOL, DIRECTIVE, SECTION, INSTRUCTION, OPR_DEC, OPR_HEX,
-    ILLEGAL
+    OPR_REG_DIR, OPR_REG_IND, OPR_REG_IND_OFF, OPR_IMM,
+    OPR_REG_IND_DOLLAR, OPR_MEM_DIR, ILLEGAL
 };
 
-enum SectionName {
+enum section_name_t {
     NONE, BSS, RODATA, DATA, TEXT
 };
 
-enum scope_t {
-    LOCAL, GLOBAL, EXTERN
+enum flags_t {
+    LOCAL, GLOBAL, EXTERN, READ, WRITE, EXECUTE
 };
 
-struct Section {
-    string name;
-    int size;
-
-    Section(string a, int b) : name(a), size(b) {}
-};
-
-struct Match {
+struct match_t {
     token_t type;
     regex pattern;
-};
-
-struct SymTableEntry {
-    string name;
-    string section;
-    unsigned offset;
-    scope_t scope;
-    int size;
 };
 
 void process_input(std::ifstream &);
@@ -46,4 +32,11 @@ void first_run();
 
 void second_run();
 
+token_t find_match(string token);
+
+extern vector<match_t> Matcher;
+
+extern token_t find_address_mode(string token);
+
+extern unsigned getOperandValue(string token);
 #endif //CODE_COMPILER_H

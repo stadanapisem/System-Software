@@ -5,53 +5,32 @@
 #include <iostream>
 #include <queue>
 #include "compiler.h"
+#include "table.h"
+#include "instruction.h"
 
 using namespace std;
 
+int SymTableEntry::num = 1;
 vector<vector<string> > Tokens;
 vector<SymTableEntry> Symbol_Table;
-vector<Section> Sections;
+//vector<Section> Sections;
 
-vector<pair<string, unsigned>> Instructions = {
-        pair<string, unsigned>("int", 0x00),
-        pair<string, unsigned>("jmp", 0x02),
-        pair<string, unsigned>("call", 0x03),
-        pair<string, unsigned>("ret", 0x01),
-        pair<string, unsigned>("jz", 0x04),
-        pair<string, unsigned>("jnz", 0x05),
-        pair<string, unsigned>("jgz", 0x06),
-        pair<string, unsigned>("jgez", 0x07),
-        pair<string, unsigned>("jlz", 0x08),
-        pair<string, unsigned>("jlez", 0x09),
-
-        pair<string, unsigned>("load", 0x10),
-        pair<string, unsigned>("store", 0x11),
-
-        pair<string, unsigned>("push", 0x20),
-        pair<string, unsigned>("pop", 0x21),
-
-        pair<string, unsigned>("add", 0x30),
-        pair<string, unsigned>("sub", 0x31),
-        pair<string, unsigned>("mul", 0x32),
-        pair<string, unsigned>("div", 0x33),
-        pair<string, unsigned>("mod", 0x34),
-        pair<string, unsigned>("and", 0x35),
-        pair<string, unsigned>("or", 0x36),
-        pair<string, unsigned>("xor", 0x37),
-        pair<string, unsigned>("not", 0x38),
-        pair<string, unsigned>("asl", 0x39),
-        pair<string, unsigned>("asr", 0x3A)
-};
-
-vector<Match> Matcher = {
-        {.type = LABEL, .pattern = regex("^([a-zA-Z0-9]{1,}):$")},
+vector<match_t> Matcher = {
+        {.type = LABEL, .pattern = regex("^([a-zA-Z_][a-zA-Z0-9]{0,}):$")},
         {.type = SYMBOL, .pattern = regex("^([a-zA-Z_])([a-zA-Z0-9])*$")},
         {.type = DIRECTIVE, .pattern = regex("^(def|DUP|ORG|DD|DW|DB|.global)$")},
         {.type = SECTION, .pattern = regex("^.(text|data|rodata|bss)(.[0-9]+)?$")},
         {.type = INSTRUCTION, .pattern = regex(
                 "^(int|jmp|call|ret|jz|jnz|jgz|jgez|jlz|jlez|load|store|push|pop|add|sub|mul|div|mod|and|or|xor|not|asl|asr)$")},
         {.type = OPR_DEC, .pattern = regex("^[0-9]+$")},
-        {.type = OPR_HEX, .pattern = regex("^0x[0-9a-fA-F]+$")}
+        {.type = OPR_HEX, .pattern = regex("^0x[0-9a-fA-F]+$")},
+        {.type = OPR_REG_DIR, .pattern = regex("^(r([0-9]+)|(pc|sp))$")},
+        {.type = OPR_REG_IND, .pattern = regex("^\\[((r[0-9]+)|(pc|sp))\\]$")},
+        {.type = OPR_REG_IND_OFF, .pattern = regex(
+                "^\\[((r([0-9]+)|(sp|pc))\\+((0x[0-9a-fA-F]+)|([0-9]+)|(([a-zA-Z_])([a-zA-Z0-9])*)))\\]$")},
+        {.type = OPR_IMM, .pattern = regex("^#((0x[0-9a-fA-F]+)|([0-9]+)|(([a-zA-Z_])([a-zA-Z0-9])*))$")},
+        {.type = OPR_REG_IND_DOLLAR, .pattern = regex("\\$((0x[0-9a-fA-F]+)|([0-9]+)|(([a-zA-Z_])([a-zA-Z0-9])*))$")},
+        {.type = OPR_MEM_DIR, .pattern = regex("((^[a-zA-Z_])([a-zA-Z0-9])*$)|(^[0-9]+$)|(^0x[0-9a-fA-F]+$)")}
 };
 
 vector<string> tokenize(string &s, const char *delim) {
@@ -86,32 +65,50 @@ void process_input(ifstream &input) {
     }
 }
 
-static token_t find_match(string token) {
+static string toLower(string x) {
+    string lower = "";
+    lower.reserve(x.size());
+    for (int i = 0; i < x.size(); i++)
+        lower += tolower(x[i]);
+
+    return lower;
+}
+
+token_t find_match(string token) {
     token_t ret = ILLEGAL;
 
     if (regex_match(token, Matcher[SYMBOL].pattern))
         ret = SYMBOL;
 
     //std::transform(token.begin(), token.end(), token.begin(), ::tolower);
-    string lower = "";
-    lower.reserve(token.size());
-    for (int i = 0; i < token.size(); i++)
-        lower += tolower(token[i]);
+    string lower = toLower(token);
 
-    for (auto &i : Matcher) {
-        if (i.type == SYMBOL)
+    for (int i = 0; i < 5; i++) {
+        if (Matcher[i].type == SYMBOL)
             continue;
 
-        if (regex_match(token, i.pattern) || regex_match(lower, i.pattern)) {
+        if (regex_match(token, Matcher[i].pattern) || regex_match(lower, Matcher[i].pattern)) {
             if (ret == SYMBOL || ret == ILLEGAL)
-                ret = i.type;
-            else
+                ret = Matcher[i].type;
+            else {
                 cerr << "ERROR" << endl;
+                exit(-1);
+            }
         }
 
     }
 
     return ret;
+}
+
+token_t find_address_mode(string token) {
+    string lower = toLower(token);
+
+    for (int i = 5; i < Matcher.size(); i++)
+        if (regex_match(token, Matcher[i].pattern) || regex_match(lower, Matcher[i].pattern))
+            return Matcher[i].type;
+
+    return ILLEGAL;
 }
 
 static bool find_symbol(string name) {
@@ -122,20 +119,36 @@ static bool find_symbol(string name) {
     return false;
 }
 
-static void add_symbol(string name, string section, unsigned offset, scope_t scope, int size) {
-    SymTableEntry sym = {.name = name, .section = section,
-            .offset = offset, .scope = scope, .size = size};
+static int find_section_ord(string name) {
+    for (auto &i: Symbol_Table)
+        if (i.type == "SEG" && i.name == name)
+            return i.ordinal_no;
+
+    return -1;
+}
+
+static void add_symbol(string type, string name, string section, unsigned val, flags_t f) {
+
+    int sec_ord = find_section_ord(section);
+
+    if (sec_ord == -1) {
+        cerr << "Can't add symbol " << name << " into section " << section << endl;
+        exit(-1);
+    }
 
     if (find_symbol(name)) {
         cerr << "Symbol already in table" << endl;
         exit(-1);
     }
 
-    Symbol_Table.push_back(sym);
-
+    Symbol_Table.push_back(SymTableEntry(type, name, sec_ord, val, f));
 }
 
-static SectionName toSectionName(string name) {
+static void add_section(string type, string name, unsigned start, unsigned size, unsigned f) {
+    Symbol_Table.push_back(SymTableEntry(type, name, -1, start, size, f));
+}
+
+static section_name_t toSectionName(string name) {
     if (name == "NONE")
         return NONE;
     if (name == ".bss")
@@ -148,7 +161,7 @@ static SectionName toSectionName(string name) {
         return TEXT;
 }
 
-static unsigned getOperandValue(string token) {
+unsigned getOperandValue(string token) {
     unsigned ret;
 
     if (regex_match(token, Matcher[OPR_DEC].pattern)) {
@@ -163,19 +176,12 @@ static unsigned getOperandValue(string token) {
 
 void first_run() {
 
-    /*for (auto &i : Tokens) {
-        for (auto &j : i)
-            fprintf(stderr, "%s\n", j.c_str());
-        fprintf(stderr, "-------------\n");
-    }*/
-
     unsigned offset = 0;
     string current_section = "none";
     bool was_org = false;
 
     for (auto &i : Tokens) {
         queue<string> token_line;
-
 
         for (auto &token : i)
             token_line.push(token);
@@ -189,7 +195,8 @@ void first_run() {
 
                 if (current_token_type == LABEL) {
                     token_line.pop();
-                    add_symbol(current_token.substr(0, current_token.size() - 1), current_section, offset, LOCAL, 0);
+                    add_symbol("SYM", current_token.substr(0, current_token.size() - 1), current_section, offset,
+                               LOCAL);
                 }
 
                 state_machine = 1;
@@ -206,15 +213,13 @@ void first_run() {
                 switch (current_token_type) {
                     case SECTION: {
                         if (current_section != "none") {
-                            Sections.push_back(Section(current_section, offset));
-
                             for (auto &sym : Symbol_Table)
-                                if (sym.name == current_token)
-                                    sym.size = offset - sym.offset;
+                                if (sym.name == current_section)
+                                    sym.size = offset - sym.start_adr;
                         }
 
-                        current_section = current_token;
-                        add_symbol(current_token, current_section, offset, LOCAL, 0);
+                        current_section = current_token; // TODO FLAGS
+                        add_section("SEG", current_token, offset, 0, (unsigned) (READ | WRITE | EXECUTE | LOCAL));
 
                         if (was_org)
                             was_org = false;
@@ -233,9 +238,9 @@ void first_run() {
 
                         string new_token = token_line.front();
                         token_line.pop();
-                        token_t new_token_type = find_match(new_token);
+                        token_t new_token_type = find_address_mode(new_token);
 
-                        if (new_token_type != OPR_DEC && new_token_type != OPR_HEX && new_token_type != SYMBOL) {
+                        if (new_token_type != OPR_DEC && new_token_type != OPR_HEX && new_token_type != OPR_IMM) {
                             cerr << "This token not ok " << new_token << endl;
                             exit(-1);
                         }
@@ -262,8 +267,17 @@ void first_run() {
                     }
 
                     case INSTRUCTION: {
-                        offset += 4; // TODO Properly determine instruction size
+                        string mnemonic = toLower(current_token);
+                        auto inst = Instructions.find(mnemonic);
+                        if (inst == Instructions.end()) {
+                            cerr << "Unknown instruction " << current_token << endl;
+                            break;//exit(-1);
+                        }
 
+                        inst::opcode_t opcode = inst->second(token_line);
+                        if(opcode.using_both)
+                            offset += 8;
+                        else offset += 4;
                         while (!token_line.empty())
                             token_line.pop();
 
@@ -285,18 +299,105 @@ void first_run() {
         }
     }
 
-    Sections.push_back(Section(current_section, offset));
+    //Sections.push_back(Section(current_section, offset));
     for (auto &sym : Symbol_Table)
         if (sym.name == current_section)
-            sym.size = offset - sym.offset;
+            sym.size = offset - sym.start_adr;
 
-    for (auto &i : Sections)
-        cout << i.name << " " << i.size << endl;
-    cout << "------------------------" << endl;
+    //for (auto &i : Sections)
+    //    cout << i.name << " " << i.size << endl;
+    //cout << "------------------------" << endl;
     for (auto &i : Symbol_Table)
-        cout << i.name << " " << i.section << " " << i.size << " " << i.offset << endl;
+        cout << i << endl;
 }
 
 void second_run() {
+
+    unsigned offset = 0;
+    string current_section = "none";
+
+    for (auto &i : Tokens) {
+        queue<string> token_line;
+
+        for (auto &token : i)
+            token_line.push(token);
+
+        int state_machine = 0;
+
+        while (!token_line.empty()) {
+            if (state_machine == 0) {
+                string current_token = token_line.front();
+                token_t current_token_type = find_match(current_token);
+
+                if (current_token_type == LABEL)
+                    token_line.pop();
+
+                state_machine = 1;
+
+            } else if (state_machine == 1) {
+
+                string current_token = token_line.front();
+                token_line.pop();
+                token_t current_token_type = find_match(current_token);
+
+                switch (current_token_type) {
+                    case SECTION: {
+                        current_section = current_token;
+                        state_machine = 2;
+                        break;
+                    }
+
+                    case DIRECTIVE: {
+                        if (current_token == ".global")
+                            state_machine = 3;
+
+
+                        break;
+                    }
+
+                    case INSTRUCTION: {
+                        string mnemonic = toLower(current_token);
+                        auto inst = Instructions.find(mnemonic);
+                        if (inst == Instructions.end()) {
+                            cerr << "Unknown instruction " << current_token << endl;
+                            break;//exit(-1);
+                        }
+
+                        inst::opcode_t opcode = inst->second(token_line);
+                        break;
+                    }
+
+                    default:
+                        cerr << current_token + " Can't process that!" << endl;
+                        //exit(-1);
+
+                }
+            } else if (state_machine == 2) {
+                if (!token_line.empty()) {
+                    cerr << "Didn't parse whole line" << endl;
+                    exit(-1);
+                }
+
+                state_machine = 1;
+            } else if (state_machine == 3) { // .global
+                if (token_line.empty())
+                    state_machine = 2;
+                else {
+                    while (!token_line.empty()) {
+                        string current_token = token_line.front();
+                        token_line.pop();
+                        bool has = false;
+
+                        for (auto &i :Symbol_Table)
+                            if (i.name == current_token)
+                                i.flags = GLOBAL, has = true;
+
+                        if (!has)
+                            add_symbol("SYM", current_token, current_section, offset, EXTERN);
+                    }
+                }
+            }
+        }
+    }
 
 }
