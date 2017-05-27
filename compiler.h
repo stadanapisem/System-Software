@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <fstream>
 #include <regex>
+#include "table.h"
 
 using namespace std;
 
@@ -18,7 +19,8 @@ enum section_name_t {
 };
 
 enum flags_t {
-    LOCAL, GLOBAL, EXTERN, READ, WRITE, EXECUTE
+    LOCAL = 0x0, GLOBAL = 0x1, EXTERN = 0x2,
+    READ = 0x4, WRITE = 0x8, EXECUTE = 0x10
 };
 
 struct match_t {
@@ -26,17 +28,23 @@ struct match_t {
     regex pattern;
 };
 
+extern bool second_pass_check;
+extern vector<SymTableEntry> Symbol_Table;
+extern unsigned offset;
+extern string current_section;
+extern vector<match_t> Matcher;
+
 void process_input(std::ifstream &);
 
-void first_run();
+void first_pass();
 
-void second_run();
+void second_pass();
 
 token_t find_match(string token);
 
-extern vector<match_t> Matcher;
+token_t find_address_mode(string token);
 
-extern token_t find_address_mode(string token);
+unsigned getOperandValue(string token);
 
-extern unsigned getOperandValue(string token);
+int find_section_ord(string name);
 #endif //CODE_COMPILER_H

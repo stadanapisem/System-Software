@@ -26,6 +26,6 @@ int main(int argc, char **argv) {
     }
 
     process_input(input);
-    first_run();
-    second_run();
+    first_pass();
+    second_pass();
 }

@@ -13,7 +13,7 @@ namespace inst {
             unsigned op:8, adr_mode:3, r0:5, r1:5, r2:5, type:3, unused:2;
         } first_word;
 
-        unsigned second_word;
+        int second_word;
         bool using_both;
     };
 
@@ -31,4 +31,5 @@ namespace inst {
 }
 extern map<string, inst::opcode_t(*)(queue<string>&)> Instructions;
 
+int parse_expression(std::string);
 #endif //CODE_INSTRUCTION_H

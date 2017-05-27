@@ -5,7 +5,6 @@
 #include <iostream>
 #include <queue>
 #include "compiler.h"
-#include "table.h"
 #include "instruction.h"
 
 using namespace std;
@@ -13,6 +12,8 @@ using namespace std;
 int SymTableEntry::num = 1;
 vector<vector<string> > Tokens;
 vector<SymTableEntry> Symbol_Table;
+unsigned offset;
+string current_section;
 //vector<Section> Sections;
 
 vector<match_t> Matcher = {
@@ -111,15 +112,7 @@ token_t find_address_mode(string token) {
     return ILLEGAL;
 }
 
-static bool find_symbol(string name) {
-    for (auto &i : Symbol_Table)
-        if (i.name == name)
-            return true;
-
-    return false;
-}
-
-static int find_section_ord(string name) {
+int find_section_ord(string name) {
     for (auto &i: Symbol_Table)
         if (i.type == "SEG" && i.name == name)
             return i.ordinal_no;
@@ -136,29 +129,21 @@ static void add_symbol(string type, string name, string section, unsigned val, f
         exit(-1);
     }
 
-    if (find_symbol(name)) {
-        cerr << "Symbol already in table" << endl;
-        exit(-1);
-    }
+    for(auto& i:Symbol_Table)
+        if(i.name == name && i.ordinal_section_no == 0) {
+            i.ordinal_section_no = find_section_ord(section);
+            i.value = val;
+            i.flags = f;
+        } else if(i.name == name && i.ordinal_section_no != 0) {
+            cerr << "Symbol already exists!" << endl;
+            exit(-1);
+        }
 
     Symbol_Table.push_back(SymTableEntry(type, name, sec_ord, val, f));
 }
 
 static void add_section(string type, string name, unsigned start, unsigned size, unsigned f) {
     Symbol_Table.push_back(SymTableEntry(type, name, -1, start, size, f));
-}
-
-static section_name_t toSectionName(string name) {
-    if (name == "NONE")
-        return NONE;
-    if (name == ".bss")
-        return BSS;
-    if (name == ".rodata")
-        return RODATA;
-    if (name == ".data")
-        return DATA;
-    if (name == ".text")
-        return TEXT;
 }
 
 unsigned getOperandValue(string token) {
@@ -172,12 +157,28 @@ unsigned getOperandValue(string token) {
         return ret;
     }
 
+    cerr << "Can't get this operands value!" << endl;
+    exit(-1);
 }
 
-void first_run() {
+static unsigned get_flags(string section) {
+    section = section.substr(1);
+    section = section.substr(0, section.find('.'));
 
-    unsigned offset = 0;
-    string current_section = "none";
+    if(section == "text")
+        return (LOCAL | READ | EXECUTE);
+    else if(section == "bss")
+        return (LOCAL | READ | WRITE);
+    else if(section == "rodata")
+        return (LOCAL | READ);
+    else if(section == "data")
+        return (LOCAL | READ | WRITE);
+}
+
+void first_pass() {
+
+    offset = 0;
+    current_section = "none";
     bool was_org = false;
 
     for (auto &i : Tokens) {
@@ -201,8 +202,7 @@ void first_run() {
 
                 state_machine = 1;
             } else if (state_machine == 1) {
-                string current_token = token_line.front();
-                token_line.pop();
+                string current_token = token_line.front(); token_line.pop();
                 token_t current_token_type = find_match(current_token);
 
                 if (was_org && current_token_type != SECTION) {
@@ -218,8 +218,10 @@ void first_run() {
                                     sym.size = offset - sym.start_adr;
                         }
 
-                        current_section = current_token; // TODO FLAGS
-                        add_section("SEG", current_token, offset, 0, (unsigned) (READ | WRITE | EXECUTE | LOCAL));
+                        current_section = current_token;
+                        unsigned flags = get_flags(current_section);
+
+                        add_section("SEG", current_token, offset, 0, flags);
 
                         if (was_org)
                             was_org = false;
@@ -236,32 +238,49 @@ void first_run() {
                             break;
                         }
 
-                        string new_token = token_line.front();
-                        token_line.pop();
-                        token_t new_token_type = find_address_mode(new_token);
+                        int last_inc = 0, last_val = 0;
 
-                        if (new_token_type != OPR_DEC && new_token_type != OPR_HEX && new_token_type != OPR_IMM) {
-                            cerr << "This token not ok " << new_token << endl;
-                            exit(-1);
+                        while(!token_line.empty()) {
+                            string new_token = token_line.front();
+                            token_line.pop();
+                            /*if(find_match(new_token) == DIRECTIVE && current_token == "def") {
+                                current_token = new_token;
+                                new_token = token_line.front(); token_line.pop();
+                            }*/
+
+                            //token_t new_token_type = find_address_mode(new_token);
+
+                            /*if (new_token_type != OPR_DEC && new_token_type != OPR_HEX && new_token_type != OPR_IMM) {
+                                cerr << "This token not ok " << new_token << endl;
+                                exit(-1);
+                            }*/
+
+                            if(new_token == "DUP") { // in second pass
+                                offset -= last_inc;
+                                while(!token_line.empty())
+                                    token_line.pop();
+                            }
+
+                            int value = parse_expression(new_token), bytes = 0;
+
+                            if (current_token == "DB")
+                                bytes = 1;
+                            else if (current_token == "DW")
+                                bytes = 2;
+                            else if (current_token == "DD")
+                                bytes = 4;
+                            else
+                                bytes += 4;
+
+                            offset += bytes;
+                            last_inc = bytes;
+                            last_val = value;
+
+                            if (current_token == "ORG") {
+                                offset = value;
+                                was_org = true;
+                            }
                         }
-
-                        unsigned value = getOperandValue(new_token), bytes = 0;
-
-                        if (current_token == "DB")
-                            bytes = 1;
-                        else if (current_token == "DW")
-                            bytes = 2;
-                        else if (current_token == "DD") {
-                            bytes = 4;
-                        }
-
-                        offset += bytes;
-
-                        if (current_token == "ORG") {
-                            offset = value;
-                            was_org = true;
-                        }
-
                         state_machine = 2;
                         break;
                     }
@@ -275,12 +294,26 @@ void first_run() {
                         }
 
                         inst::opcode_t opcode = inst->second(token_line);
-                        if(opcode.using_both)
+                        if (opcode.using_both)
                             offset += 8;
                         else offset += 4;
+
                         while (!token_line.empty())
                             token_line.pop();
 
+                        break;
+                    }
+
+                    case SYMBOL: { // This should only handle DEF directive
+                        string def_token = token_line.front(); token_line.pop();
+                        if(def_token == "DEF" || def_token == "def") {
+                            int value = parse_expression(token_line.front()); token_line.pop();
+
+                            Symbol_Table.push_back(SymTableEntry("SYM", current_token, -1, value, GLOBAL));
+                        } else {
+                            cerr << "You cannot do that!" << endl;
+                            exit(-1);
+                        }
                         break;
                     }
 
@@ -311,10 +344,13 @@ void first_run() {
         cout << i << endl;
 }
 
-void second_run() {
+bool second_pass_check = false;
 
-    unsigned offset = 0;
-    string current_section = "none";
+void second_pass() {
+
+    offset = 0;
+    current_section = "none";
+    second_pass_check = true;
 
     for (auto &i : Tokens) {
         queue<string> token_line;
@@ -348,10 +384,56 @@ void second_run() {
                     }
 
                     case DIRECTIVE: {
-                        if (current_token == ".global")
+                        if (current_token == ".global") {
                             state_machine = 3;
+                            break;
+                        }
 
 
+                        int last_inc = 0, last_val = 0;
+
+                        while(!token_line.empty()) {
+                            string new_token = token_line.front();
+                            token_line.pop();
+
+                            if(new_token == "DUP") {
+                                offset -= last_inc;
+
+                                new_token = token_line.front();
+                                token_line.pop();
+
+                                if(new_token != "?" && current_section.substr(0, 4) == ".bss") {
+                                    cerr << "Can't initialize in .bss section" << endl;
+                                    exit(-1);
+                                } else if (new_token == "?") {
+                                    offset += last_inc * last_val;
+                                } else if(new_token != "?") {
+                                    int value = parse_expression(new_token);
+                                    // write to memory
+                                }
+                                break;
+                            }
+
+                            int value = parse_expression(new_token), bytes = 0;
+
+                            if (current_token == "DB")
+                                bytes = 1;
+                            else if (current_token == "DW")
+                                bytes = 2;
+                            else if (current_token == "DD")
+                                bytes = 4;
+                            else
+                                bytes += 4;
+
+                            offset += bytes;
+                            last_inc = bytes;
+                            last_val = value;
+
+                            if (current_token == "ORG") {
+                                offset = value;
+                            }
+                        }
+                        state_machine = 2;
                         break;
                     }
 
@@ -364,6 +446,7 @@ void second_run() {
                         }
 
                         inst::opcode_t opcode = inst->second(token_line);
+                        // TODO write to memory
                         break;
                     }
 
@@ -395,6 +478,7 @@ void second_run() {
                         if (!has)
                             add_symbol("SYM", current_token, current_section, offset, EXTERN);
                     }
+                    state_machine = 2;
                 }
             }
         }

@@ -10,7 +10,8 @@ public:
 
     int ordinal_no, ordinal_section_no;
     string name, type;
-    unsigned value, size, start_adr, flags;
+    int value;
+    unsigned size, start_adr, flags;
 
 
     SymTableEntry(string t, string n, int ord_sec, unsigned start, unsigned size, unsigned flag)
@@ -20,7 +21,7 @@ public:
             ordinal_section_no = ordinal_no;
     }
 
-    SymTableEntry(string t, string n, int ord_sec, unsigned value, unsigned flag)
+    SymTableEntry(string t, string n, int ord_sec, int value, unsigned flag)
             : type(t), ordinal_no(num++), name(n), ordinal_section_no(ord_sec), value(value), flags(flag) {
 
     }
