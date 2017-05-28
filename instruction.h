@@ -10,11 +10,22 @@ using namespace std;
 namespace inst {
     struct opcode_t {
         struct {
-            unsigned op:8, adr_mode:3, r0:5, r1:5, r2:5, type:3, unused:2;
+            unsigned op:8, adr_mode:3, r0:5, r1:5, r2:5, type:3, unused:3;
         } first_word;
 
         int second_word;
         bool using_both;
+
+        unsigned get_first_word() {
+            unsigned ret = first_word.op << 24;
+            ret |= first_word.adr_mode << 21;
+            ret |= first_word.r0 << 16;
+            ret |= first_word.r1 << 11;
+            ret |= first_word.r2 << 6;
+            ret |= first_word.type << 3;
+
+            return ret;
+        }
     };
 
     enum Address_mode_codes {

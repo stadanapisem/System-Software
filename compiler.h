@@ -14,10 +14,6 @@ enum token_t {
     OPR_REG_IND_DOLLAR, OPR_MEM_DIR, ILLEGAL
 };
 
-enum section_name_t {
-    NONE, BSS, RODATA, DATA, TEXT
-};
-
 enum flags_t {
     LOCAL = 0x0, GLOBAL = 0x1, EXTERN = 0x2,
     READ = 0x4, WRITE = 0x8, EXECUTE = 0x10
@@ -47,4 +43,7 @@ token_t find_address_mode(string token);
 unsigned getOperandValue(string token);
 
 int find_section_ord(string name);
+
+void write_obj(ofstream &);
+
 #endif //CODE_COMPILER_H

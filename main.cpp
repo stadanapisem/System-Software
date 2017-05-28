@@ -6,10 +6,10 @@ using namespace std;
 
 int main(int argc, char **argv) {
 
-    /*if(argc < 3) {
+    if(argc < 3) {
         printf("Usage: program input_file output_file\n");
         return -1;
-    }*/
+    }
 
     ifstream input(argv[1]);
 
@@ -18,9 +18,9 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    FILE *output = fopen("asd.txt", "w");
+    ofstream output(argv[2]);
 
-    if (!output) {
+    if (!output.is_open()) {
         fprintf(stderr, "Error opening file\n");
         return -1;
     }
@@ -28,4 +28,5 @@ int main(int argc, char **argv) {
     process_input(input);
     first_pass();
     second_pass();
+    write_obj(output);
 }

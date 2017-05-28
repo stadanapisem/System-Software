@@ -4,8 +4,6 @@
 
 using namespace inst;
 
-int sp[] = {2, 3, 4, 0};
-
 int input_priority(char c) {
     if (c == '+' || c == '-')
         return 2;
@@ -40,14 +38,14 @@ int parse_expression(string token) {
                 if (token == i.name) {
                     if (i.ordinal_section_no == find_section_ord(current_section))
                         return offset - i.value;
-
-                    Relocations.push_back(Relocation(offset, 'A', find_section_ord(current_section)));
+                    //TODO Relocation
+                    Relocations.push_back(Relocation(offset, 'A', find_section_ord(current_section), i.ordinal_no));
                     return offset;
                 }
 
             Symbol_Table.push_back(SymTableEntry("SYM", token, 0, 0, 0, LOCAL));
         }
-    } else {// TODO ELSE IF EXPRESSION OR SYMBOL DIFF
+    } else {
         // Presumably it is a constant expression
         stack<char> S;
         queue<string> Evaluate;
@@ -57,8 +55,9 @@ int parse_expression(string token) {
             char ah_taj_c[123];
             memset(ah_taj_c, 0, sizeof(ah_taj_c));
             //cerr << "ASDSAASSA:  " <<  token.substr(i) << endl;
-            sscanf(token.substr(i).c_str(), "%[^\n+-*/\\(\\)]s", ah_taj_c);
+            sscanf(token.substr(i).c_str(), "%[^\n+-*/\\(\\)]s", ah_taj_c); // c magics
             string tmp(ah_taj_c);
+
             if (regex_match(tmp, Matcher[SYMBOL].pattern)) {
                 //cerr << tmp << '|';
                 Evaluate.push(tmp);
@@ -68,7 +67,7 @@ int parse_expression(string token) {
                 Evaluate.push(tmp);
                 i += tmp.length() - 1;
             } else if (regex_match(tmp, Matcher[OPR_HEX].pattern)) {
-                cerr << tmp << '|';
+                //cerr << tmp << '|';
                 i += tmp.length() - 1;
                 Evaluate.push(tmp);
             } else {
@@ -108,7 +107,7 @@ int parse_expression(string token) {
                 string op2 = operands.top();
                 operands.pop();
 
-                if (op == "+") {// TODO What if one is symbol?
+                if (op == "+") {
                     if (regex_match(op2, Matcher[SYMBOL].pattern) && !second_pass_check) {
                         bool found = false;
                         for (auto &i : Symbol_Table)
@@ -134,7 +133,8 @@ int parse_expression(string token) {
                                     break;
                                 }
 
-                                Relocations.push_back(Relocation(offset, 'A', find_section_ord(current_section)));
+                                // TODO Relocation
+                                Relocations.push_back(Relocation(offset, 'A', find_section_ord(current_section), i.ordinal_no));
                                 operands.push(to_string(getOperandValue(op1)));
                                 found = true;
                                 break;
@@ -212,20 +212,22 @@ static int operand_value(string token, opcode_t &code) {
         string tmp = token;
         tmp = tmp.substr(tmp.find('+') + 1, token.size() - 1);
         tmp = tmp.substr(0, tmp.size() - 1);
-        code.second_word = getOperandValue(tmp);
+        int value = parse_expression(tmp);
 
         if (token[1] == 'p' || token[1] == 'P')
-            return PC;
+            code.first_word.r1 = PC;
         else if (token[1] == 's' || token[1] == 'S')
-            return SP;
+            code.first_word.r1 = PC;
         else {
             unsigned ret;
             sscanf(token.c_str(), "[r%u", &ret);
-            return ret;
+            code.first_word.r1 = ret;
         }
+
+        return value;
     } else if (regex_match(token, Matcher[OPR_REG_IND_DOLLAR].pattern)) {
         code.first_word.adr_mode = REG_IND_OFF;
-        code.first_word.r0 = PC;
+        code.first_word.r1 = PC;
         code.using_both = true;
 
         return parse_expression(token.substr(1));
@@ -266,11 +268,6 @@ opcode_t instructionINT(queue<string> &tokens) {
     opcode_t ret;
     memset(&ret, 0, sizeof(ret));
 
-    ret.using_both = false;
-    ret.first_word.op = 0x00;
-    ret.first_word.r1 = 0;
-    ret.first_word.r2 = 0;
-    ret.first_word.type = 0;
     ret.first_word.r0 = (unsigned) parse_operand(tokens, address_modes, ret);
 
     return ret;
@@ -293,10 +290,10 @@ opcode_t instructionJMP(queue<string> &tokens) {
             ret.first_word.r0 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r0 != 0)
-                break;
-
-            ret.first_word.r0 = (unsigned) op_value;
+            ret.second_word = op_value;
+            break;
+        case MEM_DIR:
+            ret.second_word = op_value;
             break;
     }
 
@@ -319,10 +316,8 @@ opcode_t instructionCALL(queue<string> &tokens) {
             ret.first_word.r0 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r0 != 0)
-                break;
-
-            ret.first_word.r0 = (unsigned) op_value;
+        case MEM_DIR:
+            ret.second_word = op_value;
             break;
     }
 
@@ -356,10 +351,7 @@ opcode_t instructionJZ(queue<string> &tokens) {
             ret.first_word.r1 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r1 != 0)
-                break;
-
-            ret.first_word.r1 = (unsigned) op_value;
+            ret.second_word = op_value;
             break;
         case MEM_DIR:
             ret.second_word = op_value;
@@ -387,10 +379,7 @@ opcode_t instructionJNZ(queue<string> &tokens) {
             ret.first_word.r1 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r1 != 0)
-                break;
-
-            ret.first_word.r1 = (unsigned) op_value;
+            ret.second_word = op_value;
             break;
         case MEM_DIR:
             ret.second_word = op_value;
@@ -418,10 +407,7 @@ opcode_t instructionJGZ(queue<string> &tokens) {
             ret.first_word.r1 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r1 != 0)
-                break;
-
-            ret.first_word.r1 = (unsigned) op_value;
+            ret.second_word = op_value;
             break;
         case MEM_DIR:
             ret.second_word = op_value;
@@ -449,10 +435,7 @@ opcode_t instructionJGEZ(queue<string> &tokens) {
             ret.first_word.r1 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r1 != 0)
-                break;
-
-            ret.first_word.r1 = (unsigned) op_value;
+            ret.second_word = op_value;
             break;
         case MEM_DIR:
             ret.second_word = op_value;
@@ -480,10 +463,7 @@ opcode_t instructionJLZ(queue<string> &tokens) {
             ret.first_word.r1 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r1 != 0)
-                break;
-
-            ret.first_word.r1 = (unsigned) op_value;
+            ret.second_word = op_value;
             break;
         case MEM_DIR:
             ret.second_word = op_value;
@@ -511,10 +491,7 @@ opcode_t instructionJLEZ(queue<string> &tokens) {
             ret.first_word.r1 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r1 != 0)
-                break;
-
-            ret.first_word.r1 = (unsigned) op_value;
+            ret.second_word = op_value;
             break;
         case MEM_DIR:
             ret.second_word = op_value;
@@ -559,14 +536,7 @@ opcode_t instructionLOAD(queue<string> &tokens) {
             ret.first_word.r1 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r1 != 0)
-                break;
-
-            ret.first_word.r1 = (unsigned) op_value;
-            break;
         case MEM_DIR:
-            ret.second_word = op_value;
-            break;
         case IMM:
             ret.second_word = op_value;
             break;
@@ -602,14 +572,7 @@ opcode_t instructionSTORE(queue<string> &tokens) {
             ret.first_word.r1 = (unsigned) op_value;
             break;
         case REG_IND_OFF:
-            if (ret.first_word.r1 != 0)
-                break;
-
-            ret.first_word.r1 = (unsigned) op_value;
-            break;
         case MEM_DIR:
-            ret.second_word = op_value;
-            break;
         case IMM:
             ret.second_word = op_value;
             break;

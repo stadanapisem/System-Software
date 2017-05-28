@@ -6,6 +6,7 @@
 #include <queue>
 #include "compiler.h"
 #include "instruction.h"
+#include "Relocation.h"
 
 using namespace std;
 
@@ -14,8 +15,9 @@ vector<vector<string> > Tokens;
 vector<SymTableEntry> Symbol_Table;
 unsigned offset;
 string current_section;
-//vector<Section> Sections;
 
+// TODO when to use relative relocation?
+// TODO reg ind off with a expression
 vector<match_t> Matcher = {
         {.type = LABEL, .pattern = regex("^([a-zA-Z_][a-zA-Z0-9]{0,}):$")},
         {.type = SYMBOL, .pattern = regex("^([a-zA-Z_])([a-zA-Z0-9])*$")},
@@ -25,10 +27,9 @@ vector<match_t> Matcher = {
                 "^(int|jmp|call|ret|jz|jnz|jgz|jgez|jlz|jlez|load|store|push|pop|add|sub|mul|div|mod|and|or|xor|not|asl|asr)$")},
         {.type = OPR_DEC, .pattern = regex("^[0-9]+$")},
         {.type = OPR_HEX, .pattern = regex("^0x[0-9a-fA-F]+$")},
-        {.type = OPR_REG_DIR, .pattern = regex("^(r([0-9]+)|(pc|sp))$")},
-        {.type = OPR_REG_IND, .pattern = regex("^\\[((r[0-9]+)|(pc|sp))\\]$")},
-        {.type = OPR_REG_IND_OFF, .pattern = regex(
-                "^\\[((r([0-9]+)|(sp|pc))\\+((0x[0-9a-fA-F]+)|([0-9]+)|(([a-zA-Z_])([a-zA-Z0-9])*)))\\]$")},
+        {.type = OPR_REG_DIR, .pattern = regex("^((r|R)([0-9]+)|(pc|sp|SP|PC))$")},
+        {.type = OPR_REG_IND, .pattern = regex("^\\[(((r|R)[0-9]+)|(pc|sp|PC|SP))\\]$")},
+        {.type = OPR_REG_IND_OFF, .pattern = regex("^\\[(((r|R)([0-9]+)|(sp|pc|SP|PC))\\+(.*))\\]$")},
         {.type = OPR_IMM, .pattern = regex("^#((0x[0-9a-fA-F]+)|([0-9]+)|(([a-zA-Z_])([a-zA-Z0-9])*))$")},
         {.type = OPR_REG_IND_DOLLAR, .pattern = regex("\\$((0x[0-9a-fA-F]+)|([0-9]+)|(([a-zA-Z_])([a-zA-Z0-9])*))$")},
         {.type = OPR_MEM_DIR, .pattern = regex("((^[a-zA-Z_])([a-zA-Z0-9])*$)|(^[0-9]+$)|(^0x[0-9a-fA-F]+$)")}
@@ -259,6 +260,9 @@ void first_pass() {
                                 offset -= last_inc;
                                 while(!token_line.empty())
                                     token_line.pop();
+
+                                offset += last_inc * last_val;
+                                break;
                             }
 
                             int value = parse_expression(new_token), bytes = 0;
@@ -340,8 +344,8 @@ void first_pass() {
     //for (auto &i : Sections)
     //    cout << i.name << " " << i.size << endl;
     //cout << "------------------------" << endl;
-    for (auto &i : Symbol_Table)
-        cout << i << endl;
+    //for (auto &i : Symbol_Table)
+        //cout << i << endl;
 }
 
 bool second_pass_check = false;
@@ -351,6 +355,7 @@ void second_pass() {
     offset = 0;
     current_section = "none";
     second_pass_check = true;
+    bool was_org = false;
 
     for (auto &i : Tokens) {
         queue<string> token_line;
@@ -379,6 +384,12 @@ void second_pass() {
                 switch (current_token_type) {
                     case SECTION: {
                         current_section = current_token;
+                        int ord = find_section_ord(current_section);
+                        Sectionlist.push_back(Section(current_section, Symbol_Table[ord - 1].start_adr, was_org, Symbol_Table[ord - 1].size));
+
+                        if(was_org)
+                            was_org = false;
+
                         state_machine = 2;
                         break;
                     }
@@ -389,7 +400,6 @@ void second_pass() {
                             break;
                         }
 
-
                         int last_inc = 0, last_val = 0;
 
                         while(!token_line.empty()) {
@@ -398,6 +408,7 @@ void second_pass() {
 
                             if(new_token == "DUP") {
                                 offset -= last_inc;
+                                Sectionlist[Sectionlist.size() - 1].decrease(last_inc);
 
                                 new_token = token_line.front();
                                 token_line.pop();
@@ -410,6 +421,8 @@ void second_pass() {
                                 } else if(new_token != "?") {
                                     int value = parse_expression(new_token);
                                     // write to memory
+                                    for(int j = 0; j < last_val; j++, offset += last_inc)
+                                        Sectionlist[Sectionlist.size() - 1].write(value, last_inc);
                                 }
                                 break;
                             }
@@ -429,8 +442,11 @@ void second_pass() {
                             last_inc = bytes;
                             last_val = value;
 
+                            Sectionlist[Sectionlist.size() - 1].write(value, last_inc);
+
                             if (current_token == "ORG") {
                                 offset = value;
+                                was_org = true;
                             }
                         }
                         state_machine = 2;
@@ -446,13 +462,18 @@ void second_pass() {
                         }
 
                         inst::opcode_t opcode = inst->second(token_line);
-                        // TODO write to memory
+                        //cerr << opcode.get_first_word() << endl;
+                        Sectionlist[Sectionlist.size() - 1].write(opcode.get_first_word(), 4);
+
+                        if(opcode.using_both)
+                            Sectionlist[Sectionlist.size() - 1].write(opcode.second_word, 4);
+
                         break;
                     }
 
                     default:
                         cerr << current_token + " Can't process that!" << endl;
-                        //exit(-1);
+                        exit(-1);
 
                 }
             } else if (state_machine == 2) {
@@ -484,4 +505,30 @@ void second_pass() {
         }
     }
 
+    second_pass_check = false;
+}
+
+void write_obj(ofstream& out) {
+    out << "#TabelaSimbola" << endl;
+
+    for(auto& i : Symbol_Table)
+        out << i << endl;
+
+    int last_ord = -1;
+    for(int i = 0; i < Relocations.size(); i++) {
+        Relocation tmp = Relocations[i];
+        if(tmp.ordinal_section_no != last_ord) {
+            out << "#rel" << Symbol_Table[tmp.ordinal_section_no - 1].name << endl;
+            last_ord = tmp.ordinal_section_no;
+        }
+
+        out << tmp << endl;
+    }
+
+    for(auto& i:Sectionlist) {
+        out << i.name << endl;
+        out << i << endl;
+    }
+
+    out << "#end";
 }

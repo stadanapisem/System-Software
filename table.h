@@ -2,6 +2,9 @@
 #define CODE_SECTION_H
 
 #include <string>
+#include <iomanip>
+#include "compiler.h"
+
 using namespace std;
 
 class SymTableEntry {
@@ -27,10 +30,30 @@ public:
     }
 
     friend ostream& operator << (ostream& out, const SymTableEntry& t) {
-        if(t.type == "SYM")
-            out << "SYM | " << t.ordinal_no << '\t' << t.name << '\t' << t.ordinal_section_no << '\t' << t.value << '\t' << t.flags;
-        else
-            out << "SEG | " << t.ordinal_no << '\t' << t.name << '\t' << t.start_adr << '\t' << t.size << '\t' << t.flags;
+        if(t.type == "SYM") {
+            out << "SYM" << " " << t.ordinal_no << " " << t.name
+                << " " << t.ordinal_section_no << " 0x" << hex
+                << t.value << " ";
+
+            if(t.flags == 0x1)
+                out << 'G';
+            else if(t.flags == 0x00)
+                out << 'L';
+
+        } else {
+            out << "SEG" << " " << t.ordinal_no << " " << t.name
+                << " " << t.ordinal_section_no << " " << "0x" << hex
+                << t.start_adr << " " << "0x" << hex << t.size << " " << 'L';
+
+            if(t.flags & 0x4)
+                out << 'R';
+            if(t.flags & 0x8)
+                out << 'W';
+            if(t.flags & 0x10)
+                out << "X";
+        }
+
+        return out;
     }
 
 };
