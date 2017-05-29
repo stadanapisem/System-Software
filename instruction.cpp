@@ -4,6 +4,8 @@
 
 using namespace inst;
 
+static bool forced_pc_rel = false;
+
 int input_priority(char c) {
     if (c == '+' || c == '-')
         return 2;
@@ -29,6 +31,18 @@ int stack_priority(char c) {
         return 0;
 }
 
+static unsigned handle_relocations(SymTableEntry sym) {
+    if(sym.ordinal_section_no == find_section_ord(current_section) && !forced_pc_rel) { // No need for realocation, symbols are in same section
+        return offset - sym.value;
+    } else if(sym.ordinal_section_no == find_section_ord(current_section) && forced_pc_rel) { // Relative relocation
+        Relocations.push_back(Relocation(offset + 4, 'R', sym.ordinal_section_no, sym.ordinal_no));
+        return sym.value - (offset + 8); // PC of next instruction
+    } else {
+        Relocations.push_back(Relocation(offset + 4, 'A', sym.ordinal_section_no, find_section_ord(current_section)));
+        return 0;
+    }
+}
+
 int parse_expression(string token) {
     if (regex_match(token, Matcher[OPR_HEX].pattern) || regex_match(token, Matcher[OPR_DEC].pattern)) {
         return getOperandValue(token);
@@ -36,11 +50,12 @@ int parse_expression(string token) {
         if (second_pass_check) {
             for (auto &i: Symbol_Table)
                 if (token == i.name) {
-                    if (i.ordinal_section_no == find_section_ord(current_section))
+                    /*if (i.ordinal_section_no == find_section_ord(current_section))
                         return offset - i.value;
-                    //TODO Relocation
-                    Relocations.push_back(Relocation(offset, 'A', find_section_ord(current_section), i.ordinal_no));
-                    return offset;
+
+                    Relocations.push_back(Relocation(offset + 4, 'A', find_section_ord(current_section), i.ordinal_no));
+                    return i.value;*/
+                    return handle_relocations(i);
                 }
 
             Symbol_Table.push_back(SymTableEntry("SYM", token, 0, 0, 0, LOCAL));
@@ -127,15 +142,16 @@ int parse_expression(string token) {
                         bool found = false;
                         for (auto &i: Symbol_Table)
                             if (op2 == i.name) {
-                                if (i.ordinal_section_no == find_section_ord(current_section)) {
+                                /*if (i.ordinal_section_no == find_section_ord(current_section)) {
                                     operands.push(to_string(offset - i.value + getOperandValue(op1)));
                                     found = true;
                                     break;
                                 }
 
-                                // TODO Relocation
-                                Relocations.push_back(Relocation(offset, 'A', find_section_ord(current_section), i.ordinal_no));
-                                operands.push(to_string(getOperandValue(op1)));
+
+                                Relocations.push_back(Relocation(offset + 4, 'A', find_section_ord(current_section), i.ordinal_no));
+                                operands.push(to_string(getOperandValue(op1)));*/
+                                operands.push(to_string(handle_relocations(i) + getOperandValue(op1)));
                                 found = true;
                                 break;
                             }
@@ -229,8 +245,11 @@ static int operand_value(string token, opcode_t &code) {
         code.first_word.adr_mode = REG_IND_OFF;
         code.first_word.r1 = PC;
         code.using_both = true;
+        forced_pc_rel = true;
 
-        return parse_expression(token.substr(1));
+        int val = parse_expression(token.substr(1));
+        forced_pc_rel = false;
+        return val;
     } else if (regex_match(token, Matcher[OPR_IMM].pattern)) {
         code.first_word.adr_mode = IMM;
         code.using_both = true;

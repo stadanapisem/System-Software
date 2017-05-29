@@ -16,8 +16,6 @@ vector<SymTableEntry> Symbol_Table;
 unsigned offset;
 string current_section;
 
-// TODO when to use relative relocation?
-// TODO reg ind off with a expression
 vector<match_t> Matcher = {
         {.type = LABEL, .pattern = regex("^([a-zA-Z_][a-zA-Z0-9]{0,}):$")},
         {.type = SYMBOL, .pattern = regex("^([a-zA-Z_])([a-zA-Z0-9])*$")},
@@ -180,7 +178,7 @@ void first_pass() {
 
     offset = 0;
     current_section = "none";
-    bool was_org = false;
+    unsigned was_org = 0;
 
     for (auto &i : Tokens) {
         queue<string> token_line;
@@ -222,10 +220,15 @@ void first_pass() {
                         current_section = current_token;
                         unsigned flags = get_flags(current_section);
 
+                        if (was_org) {
+                            offset = was_org;
+                            was_org = 0;
+                        } else
+                            offset = 0;
+
+
                         add_section("SEG", current_token, offset, 0, flags);
 
-                        if (was_org)
-                            was_org = false;
 
                         state_machine = 2;
                         break;
@@ -244,17 +247,6 @@ void first_pass() {
                         while(!token_line.empty()) {
                             string new_token = token_line.front();
                             token_line.pop();
-                            /*if(find_match(new_token) == DIRECTIVE && current_token == "def") {
-                                current_token = new_token;
-                                new_token = token_line.front(); token_line.pop();
-                            }*/
-
-                            //token_t new_token_type = find_address_mode(new_token);
-
-                            /*if (new_token_type != OPR_DEC && new_token_type != OPR_HEX && new_token_type != OPR_IMM) {
-                                cerr << "This token not ok " << new_token << endl;
-                                exit(-1);
-                            }*/
 
                             if(new_token == "DUP") { // in second pass
                                 offset -= last_inc;
@@ -281,8 +273,8 @@ void first_pass() {
                             last_val = value;
 
                             if (current_token == "ORG") {
-                                offset = value;
-                                was_org = true;
+                                was_org = (unsigned) value;
+                                offset -= bytes;
                             }
                         }
                         state_machine = 2;
@@ -355,7 +347,7 @@ void second_pass() {
     offset = 0;
     current_section = "none";
     second_pass_check = true;
-    bool was_org = false;
+    unsigned was_org = 0;
 
     for (auto &i : Tokens) {
         queue<string> token_line;
@@ -385,10 +377,14 @@ void second_pass() {
                     case SECTION: {
                         current_section = current_token;
                         int ord = find_section_ord(current_section);
-                        Sectionlist.push_back(Section(current_section, Symbol_Table[ord - 1].start_adr, was_org, Symbol_Table[ord - 1].size));
 
-                        if(was_org)
-                            was_org = false;
+                        Sectionlist.push_back(Section(current_section, Symbol_Table[ord - 1].start_adr, was_org != 0, Symbol_Table[ord - 1].size));
+
+                        if (was_org) {
+                            offset = was_org;
+                            was_org = 0;
+                        } else
+                            offset = 0;
 
                         state_machine = 2;
                         break;
@@ -445,8 +441,8 @@ void second_pass() {
                             Sectionlist[Sectionlist.size() - 1].write(value, last_inc);
 
                             if (current_token == "ORG") {
-                                offset = value;
-                                was_org = true;
+                                was_org = (unsigned) value;
+                                offset -= bytes;
                             }
                         }
                         state_machine = 2;
