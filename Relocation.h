@@ -16,6 +16,8 @@ public:
     Relocation(unsigned a, char t, int sec, int sim) :
             address(a), type(t), ordinal_section_no(sec), ordinal_no(sim) {}
 
+    Relocation(std::string in);
+
     friend std::ostream&operator << (std::ostream&, const Relocation&);
 };
 

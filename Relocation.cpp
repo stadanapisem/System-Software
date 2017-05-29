@@ -5,6 +5,10 @@ using namespace std;
 
 vector<Relocation> Relocations;
 
+Relocation::Relocation(string in) {
+    sscanf(in.c_str(), "%x %c %d", &address, &type, &ordinal_no);
+}
+
 ostream& operator << (ostream& out, const Relocation& rel) {
     out << "0x" << hex << rel.address << " " << rel.type << " " << rel.ordinal_no;
 

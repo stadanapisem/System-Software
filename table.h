@@ -3,7 +3,9 @@
 
 #include <string>
 #include <iomanip>
-#include "compiler.h"
+#include <cstdio>
+#include <cstring>
+
 
 using namespace std;
 
@@ -27,6 +29,44 @@ public:
     SymTableEntry(string t, string n, int ord_sec, int value, unsigned flag)
             : type(t), ordinal_no(num++), name(n), ordinal_section_no(ord_sec), value(value), flags(flag) {
 
+    }
+
+    SymTableEntry(string t) {
+        char type[3];
+        sscanf(t.c_str(), "%s", type);
+        this->type = string(type);
+
+        if(this->type == "SYM") {
+            char name[123], f;
+            sscanf(t.c_str(), "SYM %d %s %d %x %c", &ordinal_no, name, &ordinal_section_no, &value, &f);
+
+            this->name = string(name);
+            this->flags = (f == 'G') ? 0x1 : (f == 'L' ? 0x0 : 0x2);
+        } else {
+            char name[123], f[10];
+            sscanf(t.c_str(), "SEG %d %s %d %x %x %s", &ordinal_no, name, &ordinal_section_no, &start_adr, &size, f);
+
+            size_t len = strlen(f);
+            for(int i = 0; i < len; i++) {
+                switch (f[i]) {
+                    case 'G':
+                        this->flags |= 0x1;
+                        break;
+                    case 'L':
+                        this->flags |= 0x1;
+                        break;
+                    case 'R':
+                        this->flags |= 0x4;
+                        break;
+                    case 'W':
+                        this->flags |= 0x8;
+                        break;
+                    case 'E':
+                        this->flags |= 0x10;
+                        break;
+                }
+            }
+        }
     }
 
     friend ostream& operator << (ostream& out, const SymTableEntry& t) {
