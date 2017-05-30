@@ -46,6 +46,7 @@ public:
             char name[123], f[10];
             sscanf(t.c_str(), "SEG %d %s %d %x %x %s", &ordinal_no, name, &ordinal_section_no, &start_adr, &size, f);
 
+            this->name = string(name);
             size_t len = strlen(f);
             for(int i = 0; i < len; i++) {
                 switch (f[i]) {

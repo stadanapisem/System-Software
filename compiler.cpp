@@ -438,12 +438,13 @@ void second_pass() {
                             last_inc = bytes;
                             last_val = value;
 
-                            Sectionlist[Sectionlist.size() - 1].write(value, last_inc);
+
 
                             if (current_token == "ORG") {
                                 was_org = (unsigned) value;
                                 offset -= bytes;
-                            }
+                            } else
+                                Sectionlist[Sectionlist.size() - 1].write(value, last_inc);
                         }
                         state_machine = 2;
                         break;
@@ -463,6 +464,10 @@ void second_pass() {
 
                         if(opcode.using_both)
                             Sectionlist[Sectionlist.size() - 1].write(opcode.second_word, 4);
+
+                        if (opcode.using_both)
+                            offset += 8;
+                        else offset += 4;
 
                         break;
                     }

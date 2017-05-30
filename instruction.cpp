@@ -1,6 +1,7 @@
 #include "instruction.h"
 #include <iostream>
 #include "Relocation.h"
+#include "compiler.h"
 
 using namespace inst;
 
@@ -34,12 +35,14 @@ int stack_priority(char c) {
 static unsigned handle_relocations(SymTableEntry sym) {
     if(sym.ordinal_section_no == find_section_ord(current_section) && !forced_pc_rel) { // No need for realocation, symbols are in same section
         return offset - sym.value;
+    } else if(sym.ordinal_section_no == find_section_ord(current_section)) {
+        return (offset + 8) - sym.value;
     } else if(sym.ordinal_section_no == find_section_ord(current_section) && forced_pc_rel) { // Relative relocation
         Relocations.push_back(Relocation(offset + 4, 'R', sym.ordinal_section_no, sym.ordinal_no));
         return sym.value - (offset + 8); // PC of next instruction
     } else {
-        Relocations.push_back(Relocation(offset + 4, 'A', sym.ordinal_section_no, find_section_ord(current_section)));
-        return 0;
+        Relocations.push_back(Relocation(offset + 4, 'A', find_section_ord(current_section), sym.ordinal_section_no));
+        return sym.value;
     }
 }
 
@@ -233,7 +236,7 @@ static int operand_value(string token, opcode_t &code) {
         if (token[1] == 'p' || token[1] == 'P')
             code.first_word.r1 = PC;
         else if (token[1] == 's' || token[1] == 'S')
-            code.first_word.r1 = PC;
+            code.first_word.r1 = SP;
         else {
             unsigned ret;
             sscanf(token.c_str(), "[r%u", &ret);
@@ -756,7 +759,6 @@ opcode_t instructionNOT(queue<string> &tokens) {
 
     ret.first_word.r0 = (unsigned) parse_operand(tokens, address_modes, ret);
     ret.first_word.r1 = (unsigned) parse_operand(tokens, address_modes, ret);
-    ret.first_word.r2 = (unsigned) parse_operand(tokens, address_modes, ret);
 
     return ret;
 }
