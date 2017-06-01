@@ -1,6 +1,6 @@
 #include <iostream>
 #include <fstream>
-#include "compiler.h"
+#include "assembler.h"
 
 using namespace std;
 

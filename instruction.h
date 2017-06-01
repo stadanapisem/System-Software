@@ -26,6 +26,15 @@ namespace inst {
 
             return ret;
         }
+
+        void set_first_word(unsigned val) {
+            this->first_word.op = val >> 24;
+            this->first_word.adr_mode = val >> 21;
+            this->first_word.r0 = val >> 16;
+            this->first_word.r1 = val >> 11;
+            this->first_word.r2 = val >> 6;
+            this->first_word.type = val >> 3;
+        }
     };
 
     enum Address_mode_codes {

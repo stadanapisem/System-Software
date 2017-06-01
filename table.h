@@ -65,6 +65,9 @@ public:
                     case 'E':
                         this->flags |= 0x10;
                         break;
+                    case 'F':
+                        this->flags |= 0x20;
+                        break;
                 }
             }
         }

@@ -18,6 +18,11 @@ ostream& operator << (ostream& out, const Relocation& rel) {
 std::vector<Section> Sectionlist;
 
 void Section::write(int val, unsigned size) {
+    if(this->name.substr(0, 4) == ".bss") {
+        cerr << "Writing in bss section not allowed" << endl;
+        exit(-1);
+    }
+
     if(size == 1) {
         data[counter++] = (unsigned char) (val & 0xFF);
     } else if(size == 2) {
@@ -40,10 +45,10 @@ void Section::decrease(int val) {
 
 ostream& operator << (ostream& out, const Section& s) {
 
-    for(int i = 0; i < s.counter; i++) {
-        out << hex << s.data[i];
+    for(int i = 1; i <= s.counter; i++) {
+        out << hex << s.data[i - 1];
 
-        if(i != 0 && i % 16 == 0)
+        if(i % 16 == 0)
             out << endl;
         else
             out << " ";

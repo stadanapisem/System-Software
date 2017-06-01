@@ -1,7 +1,7 @@
 #include "instruction.h"
 #include <iostream>
 #include "Relocation.h"
-#include "compiler.h"
+#include "assembler.h"
 
 using namespace inst;
 
@@ -33,16 +33,17 @@ int stack_priority(char c) {
 }
 
 static unsigned handle_relocations(SymTableEntry sym) {
-    if(sym.ordinal_section_no == find_section_ord(current_section) && !forced_pc_rel) { // No need for realocation, symbols are in same section
+    /*if(sym.ordinal_section_no == find_section_ord(current_section) && !forced_pc_rel) { // No need for realocation, symbols are in same section
         return offset - sym.value;
     } else if(sym.ordinal_section_no == find_section_ord(current_section)) {
         return (offset + 8) - sym.value;
-    } else if(sym.ordinal_section_no == find_section_ord(current_section) && forced_pc_rel) { // Relative relocation
+    } else*/ if (sym.ordinal_section_no == find_section_ord(current_section) && forced_pc_rel) { // Relative relocation
         Relocations.push_back(Relocation(offset + 4, 'R', sym.ordinal_section_no, sym.ordinal_no));
         return sym.value - (offset + 8); // PC of next instruction
     } else {
-        Relocations.push_back(Relocation(offset + 4, 'A', find_section_ord(current_section), sym.ordinal_section_no));
-        return sym.value;
+        unsigned add = current_section.substr(0, 5) == ".text" ? 4 : 0;
+        Relocations.push_back(Relocation(offset + add, 'A', find_section_ord(current_section), sym.ordinal_section_no));
+        return sym.value; // Returns symbol offset of the section start
     }
 }
 
@@ -127,20 +128,21 @@ int parse_expression(string token) {
 
                 if (op == "+") {
                     if (regex_match(op2, Matcher[SYMBOL].pattern) && !second_pass_check) {
-                        bool found = false;
-                        for (auto &i : Symbol_Table)
-                            if (i.name == op2) {
-                                operands.push(to_string(i.value + getOperandValue(op1)));
-                                found = true;
-                                break;
-                            }
+                        /* bool found = false;
+                         for (auto &i : Symbol_Table)
+                             if (i.name == op2) {
+                                 operands.push(to_string(i.value + getOperandValue(op1)));
+                                 found = true;
+                                 break;
+                             }
 
-                        if (!found) {
-                            cerr << "Symbol from expression " << token << " doesn't exists. ERROR!" << endl;
-                            exit(-1);
-                        } else
-                            continue;
-
+                         if (!found) {
+                             cerr << "Symbol from expression " << token << " doesn't exists. ERROR!" << endl;
+                             exit(-1);
+                         } else
+                             continue;*/
+                        operands.push(to_string(getOperandValue(op1)));
+                        continue;
                     } else if (regex_match(op2, Matcher[SYMBOL].pattern) && second_pass_check) {
                         bool found = false;
                         for (auto &i: Symbol_Table)
@@ -568,7 +570,8 @@ opcode_t instructionLOAD(queue<string> &tokens) {
 }
 
 opcode_t instructionSTORE(queue<string> &tokens) {
-    vector<token_t> address_modes_op = {OPR_MEM_DIR, OPR_REG_IND, OPR_REG_IND_DOLLAR, OPR_REG_IND_OFF, OPR_REG_DIR};
+    vector<token_t> address_modes_op = {OPR_MEM_DIR, OPR_REG_IND, OPR_REG_IND_DOLLAR, OPR_REG_IND_OFF, OPR_REG_DIR,
+                                        OPR_DEC, OPR_HEX};
     vector<token_t> address_modes_reg = {OPR_REG_DIR};
 
     opcode_t ret;

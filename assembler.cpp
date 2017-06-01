@@ -4,7 +4,7 @@
 #include <regex>
 #include <iostream>
 #include <queue>
-#include "compiler.h"
+#include "assembler.h"
 #include "instruction.h"
 #include "Relocation.h"
 
@@ -30,8 +30,11 @@ vector<match_t> Matcher = {
         {.type = OPR_REG_IND_OFF, .pattern = regex("^\\[(((r|R)([0-9]+)|(sp|pc|SP|PC))\\+(.*))\\]$")},
         {.type = OPR_IMM, .pattern = regex("^#((0x[0-9a-fA-F]+)|([0-9]+)|(([a-zA-Z_])([a-zA-Z0-9])*))$")},
         {.type = OPR_REG_IND_DOLLAR, .pattern = regex("\\$((0x[0-9a-fA-F]+)|([0-9]+)|(([a-zA-Z_])([a-zA-Z0-9])*))$")},
-        {.type = OPR_MEM_DIR, .pattern = regex("((^[a-zA-Z_])([a-zA-Z0-9])*$)|(^[0-9]+$)|(^0x[0-9a-fA-F]+$)")}
+        {.type = OPR_MEM_DIR, .pattern = regex("((^[a-zA-Z_])([a-zA-Z0-9])*$)|(^[0-9]+$)|(^0x[0-9a-fA-F]+$)|(^.*$)")}
 };
+
+// TODO No whitespace in expressions (eg. [r0+a+0x32] not [r0 + a + 0x32])
+// TODO Same with other address modes that consist of constant expressions
 
 vector<string> tokenize(string &s, const char *delim) {
     vector<string> ret;
@@ -105,8 +108,12 @@ token_t find_address_mode(string token) {
     string lower = toLower(token);
 
     for (int i = 5; i < Matcher.size(); i++)
-        if (regex_match(token, Matcher[i].pattern) || regex_match(lower, Matcher[i].pattern))
+        if (regex_match(token, Matcher[i].pattern) || regex_match(lower, Matcher[i].pattern)) {
+            if(regex_match(token.substr(1), Matcher[SYMBOL].pattern) && Matcher[i].type == OPR_IMM)
+                return OPR_MEM_DIR;
+
             return Matcher[i].type;
+        }
 
     return ILLEGAL;
 }
@@ -128,12 +135,12 @@ static void add_symbol(string type, string name, string section, unsigned val, f
         exit(-1);
     }
 
-    for(auto& i:Symbol_Table)
-        if(i.name == name && i.ordinal_section_no == 0) {
+    for (auto &i:Symbol_Table)
+        if (i.name == name && i.ordinal_section_no == 0) {
             i.ordinal_section_no = find_section_ord(section);
             i.value = val;
             i.flags = f;
-        } else if(i.name == name && i.ordinal_section_no != 0) {
+        } else if (i.name == name && i.ordinal_section_no != 0) {
             cerr << "Symbol already exists!" << endl;
             exit(-1);
         }
@@ -164,13 +171,13 @@ static unsigned get_flags(string section) {
     section = section.substr(1);
     section = section.substr(0, section.find('.'));
 
-    if(section == "text")
+    if (section == "text")
         return (LOCAL | READ | EXECUTE);
-    else if(section == "bss")
+    else if (section == "bss")
         return (LOCAL | READ | WRITE);
-    else if(section == "rodata")
+    else if (section == "rodata")
         return (LOCAL | READ);
-    else if(section == "data")
+    else if (section == "data")
         return (LOCAL | READ | WRITE);
 }
 
@@ -201,7 +208,8 @@ void first_pass() {
 
                 state_machine = 1;
             } else if (state_machine == 1) {
-                string current_token = token_line.front(); token_line.pop();
+                string current_token = token_line.front();
+                token_line.pop();
                 token_t current_token_type = find_match(current_token);
 
                 if (was_org && current_token_type != SECTION) {
@@ -226,10 +234,8 @@ void first_pass() {
                         } else
                             offset = 0;
 
-
                         add_section("SEG", current_token, offset, 0, flags);
-
-
+                        offset = 0;
                         state_machine = 2;
                         break;
                     }
@@ -244,13 +250,13 @@ void first_pass() {
 
                         int last_inc = 0, last_val = 0;
 
-                        while(!token_line.empty()) {
+                        while (!token_line.empty()) {
                             string new_token = token_line.front();
                             token_line.pop();
 
-                            if(new_token == "DUP") { // in second pass
+                            if (new_token == "DUP") { // in second pass
                                 offset -= last_inc;
-                                while(!token_line.empty())
+                                while (!token_line.empty())
                                     token_line.pop();
 
                                 offset += last_inc * last_val;
@@ -301,9 +307,11 @@ void first_pass() {
                     }
 
                     case SYMBOL: { // This should only handle DEF directive
-                        string def_token = token_line.front(); token_line.pop();
-                        if(def_token == "DEF" || def_token == "def") {
-                            int value = parse_expression(token_line.front()); token_line.pop();
+                        string def_token = token_line.front();
+                        token_line.pop();
+                        if (def_token == "DEF" || def_token == "def") {
+                            int value = parse_expression(token_line.front());
+                            token_line.pop();
 
                             Symbol_Table.push_back(SymTableEntry("SYM", current_token, -1, value, GLOBAL));
                         } else {
@@ -331,13 +339,13 @@ void first_pass() {
     //Sections.push_back(Section(current_section, offset));
     for (auto &sym : Symbol_Table)
         if (sym.name == current_section)
-            sym.size = offset - sym.start_adr;
+            sym.size = offset;// - sym.start_adr;
 
     //for (auto &i : Sections)
     //    cout << i.name << " " << i.size << endl;
     //cout << "------------------------" << endl;
     //for (auto &i : Symbol_Table)
-        //cout << i << endl;
+    //cout << i << endl;
 }
 
 bool second_pass_check = false;
@@ -347,7 +355,8 @@ void second_pass() {
     offset = 0;
     current_section = "none";
     second_pass_check = true;
-    unsigned was_org = 0;
+    bool was_org = 0;
+    unsigned org_value = 0;
 
     for (auto &i : Tokens) {
         queue<string> token_line;
@@ -378,10 +387,11 @@ void second_pass() {
                         current_section = current_token;
                         int ord = find_section_ord(current_section);
 
-                        Sectionlist.push_back(Section(current_section, Symbol_Table[ord - 1].start_adr, was_org != 0, Symbol_Table[ord - 1].size));
+                        Sectionlist.push_back(Section(current_section, Symbol_Table[ord - 1].start_adr, was_org,
+                                                      Symbol_Table[ord - 1].size));
 
                         if (was_org) {
-                            offset = was_org;
+                            offset = 0;//org_value;
                             was_org = 0;
                         } else
                             offset = 0;
@@ -398,26 +408,26 @@ void second_pass() {
 
                         int last_inc = 0, last_val = 0;
 
-                        while(!token_line.empty()) {
+                        while (!token_line.empty()) {
                             string new_token = token_line.front();
                             token_line.pop();
 
-                            if(new_token == "DUP") {
+                            if (new_token == "DUP") {
                                 offset -= last_inc;
                                 Sectionlist[Sectionlist.size() - 1].decrease(last_inc);
 
                                 new_token = token_line.front();
                                 token_line.pop();
 
-                                if(new_token != "?" && current_section.substr(0, 4) == ".bss") {
+                                if (new_token != "?" && current_section.substr(0, 4) == ".bss") {
                                     cerr << "Can't initialize in .bss section" << endl;
                                     exit(-1);
                                 } else if (new_token == "?") {
                                     offset += last_inc * last_val;
-                                } else if(new_token != "?") {
+                                } else if (new_token != "?") {
                                     int value = parse_expression(new_token);
                                     // write to memory
-                                    for(int j = 0; j < last_val; j++, offset += last_inc)
+                                    for (int j = 0; j < last_val; j++, offset += last_inc)
                                         Sectionlist[Sectionlist.size() - 1].write(value, last_inc);
                                 }
                                 break;
@@ -439,11 +449,11 @@ void second_pass() {
                             last_val = value;
 
 
-
                             if (current_token == "ORG") {
-                                was_org = (unsigned) value;
+                                was_org = 1;
+                                org_value = value;
                                 offset -= bytes;
-                            } else
+                            } else if (current_section.substr(0, 4) != ".bss")
                                 Sectionlist[Sectionlist.size() - 1].write(value, last_inc);
                         }
                         state_machine = 2;
@@ -462,7 +472,7 @@ void second_pass() {
                         //cerr << opcode.get_first_word() << endl;
                         Sectionlist[Sectionlist.size() - 1].write(opcode.get_first_word(), 4);
 
-                        if(opcode.using_both)
+                        if (opcode.using_both)
                             Sectionlist[Sectionlist.size() - 1].write(opcode.second_word, 4);
 
                         if (opcode.using_both)
@@ -509,16 +519,27 @@ void second_pass() {
     second_pass_check = false;
 }
 
-void write_obj(ofstream& out) {
+static bool fixed_section(string name) {
+    for (auto &i:Sectionlist)
+        if (i.name == name && i.fixed_addres)
+            return true;
+    return false;
+}
+
+void write_obj(ofstream &out) {
     out << "#TabelaSimbola" << endl;
 
-    for(auto& i : Symbol_Table)
-        out << i << endl;
+    for (auto &i : Symbol_Table) {
+        out << i;
+        if (fixed_section(i.name))
+            out << "F" << endl;
+        else out << endl;
+    }
 
     int last_ord = -1;
-    for(int i = 0; i < Relocations.size(); i++) {
+    for (int i = 0; i < Relocations.size(); i++) {
         Relocation tmp = Relocations[i];
-        if(tmp.ordinal_section_no != last_ord) {
+        if (tmp.ordinal_section_no != last_ord) {
             out << "#rel" << Symbol_Table[tmp.ordinal_section_no - 1].name << endl;
             last_ord = tmp.ordinal_section_no;
         }
@@ -526,9 +547,11 @@ void write_obj(ofstream& out) {
         out << tmp << endl;
     }
 
-    for(auto& i:Sectionlist) {
-        out << i.name << endl;
-        out << i << endl;
+    for (auto &i:Sectionlist) {
+        if (i.name.substr(0, 4) != ".bss") {
+            out << i.name << endl;
+            out << i << endl;
+        }
     }
 
     out << "#end";
